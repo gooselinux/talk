@@ -1,0 +1,202 @@
+--- netkit-ntalk-0.17/talk/display.c.i18n	2000-07-29 20:50:27.000000000 +0200
++++ netkit-ntalk-0.17/talk/display.c	2005-01-10 10:21:49.162598760 +0100
+@@ -47,12 +47,15 @@ char display_rcsid[] = 
+  * The window 'manager', initializes curses and handles the actual
+  * displaying of text
+  */
++#include <ctype.h>
++#include <limits.h>
+ #include <string.h>
+ #include <stdlib.h>
+ #include <signal.h>
+ #include <errno.h>
+ #include <assert.h>
+ #include <curses.h>
++#include <wchar.h>
+ #include "talk.h"
+ 
+ #define MAX_MAXLINES 16384
+@@ -68,6 +71,7 @@ typedef struct {
+ 	int   s_scrollup;       /* Number of lines scrolled back */
+ 	char *s_typebuf;        /* Current input line */
+         int   s_typebufpos;     /* Current position in input line */
++	int   s_columnpos;	/* Current column in input line */
+ 	int   s_typebufmax;     /* Max length of input line */
+ 	char  cerase;           /* Erase-character key */
+ 	char  werase;           /* Erase-word key */
+@@ -105,7 +109,7 @@ init_window(window *win)
+ 
+ 	win->s_scrollup = 0;
+ 
+-	win->s_typebufmax = COLS+1;
++	win->s_typebufmax = COLS * MB_CUR_MAX + 1;
+ 	win->s_typebufpos = 0;
+ 	win->s_typebuf = malloc(win->s_typebufmax);
+ 	if (!win->s_typebuf) p_error("Out of memory");
+@@ -193,6 +197,9 @@ refresh_window(window *win, int nlines, 
+ 		else if (line==win->s_nlines) {
+ 			addstr(win->s_typebuf);
+ 		}
++		if (i == nlines - 1) {
++			win->s_columnpos = getcurx(stdscr);
++		}
+ 		clrtoeol();
+ 	}
+ }
+@@ -238,7 +245,7 @@ dorefresh(void)
+ 			move(sepline, COLS-5);
+ 		}
+ 		else {
+-			move(LINES-1, his_win.s_typebufpos);
++			move(LINES-1, his_win.s_columnpos);
+ 		}
+ 	}
+ 	else {
+@@ -246,7 +253,7 @@ dorefresh(void)
+ 			move(sepline, 17);
+ 		}
+ 		else {
+-			move(sepline-1, my_win.s_typebufpos);
++			move(sepline-1, my_win.s_columnpos);
+ 		}
+ 	}
+ 
+@@ -408,17 +415,74 @@ display_eol(window *win)
+ }
+ 
+ static
++size_t
++next_to_last_char(window *win, size_t limit)
++{
++	size_t prev, i;
++	size_t len;
++	mbstate_t mbs;
++	
++	prev = 0;
++	memset(&mbs, 0, sizeof (mbs));
++	for (i = 0; i < limit; i += len) {
++		prev = i;
++		len = mbrlen(win->s_typebuf + i, limit - i, &mbs);
++		if (len == (size_t)-2 && limit - i < MB_CUR_MAX)
++			break;
++		if (len == 0 || len == (size_t)-1 || len == (size_t)-2) {
++			memset(&mbs, 0, sizeof (mbs));
++			len = 1;
++		}
++	}
++	return prev;
++}
++
++static
+ void
+ display_addch(window *win, int ch)
+ {
++	wchar_t wc;
++	int width, correct_char;
++	size_t prev;
++
++	win->s_typebuf[win->s_typebufpos] = ch; /* Temporarily */
++	prev = next_to_last_char(win, win->s_typebufpos+1);
++
++	correct_char = 1;
++	if (mbtowc (&wc, win->s_typebuf + prev, win->s_typebufpos + 1 - prev)
++	    <= 0) {
++		mbtowc (NULL, NULL, 0);
++		correct_char = 0;
++	}
++	if (correct_char == 0 || (width = wcwidth (wc)) <= 0) {
++		width = 1;
++	}
++	win->s_typebuf[win->s_typebufpos] = 0;
++
+ 	/*
+-	 * Leave one extra byte of space in the type buffer. This is so that
+-	 * the last column of the screen doesn't get used, because the refresh
+-	 * code does clreol after it, and that clears the next line of the 
+-	 * screen, which makes a mess.
++	 * Leave one extra column. This is so that the last column of the
++	 * screen doesn't get used, because the refresh code does clreol after
++	 * it, and that clears the next line of the screen, which makes a mess.
+ 	 */
+-	if (win->s_typebufpos+2 == win->s_typebufmax) {
++	if (win->s_columnpos + width >= COLS
++	    || win->s_typebufpos+1 == win->s_typebufmax) {
++		char tmp[MB_LEN_MAX];
++		size_t i, len;
++
++		/* If we have just formed a valid multibyte character, move
++		   all its bytes to the new line */
++		len = 0;
++		if (correct_char != 0) {
++			len = win->s_typebufpos - prev;
++			if (len > sizeof (tmp)) {
++				len = sizeof (tmp);
++			}
++			memcpy (tmp, win->s_typebuf + prev, len);
++			win->s_typebuf[prev] = 0;
++		}
+ 		display_eol(win);
++		for (i = 0; i < len; i++)
++			display_addch(win, tmp[i]);
+ 	}
+ 	win->s_typebuf[win->s_typebufpos++] = ch;
+ 	win->s_typebuf[win->s_typebufpos] = 0;
+@@ -427,8 +491,9 @@ display_addch(window *win, int ch)
+ static
+ void
+ display_tab(window *win) {
+-	while (win->s_typebufpos%8 != 0) {
++	while (win->s_columnpos%8 != 0) {
+ 		display_addch(win, ' ');
++		dorefresh();
+ 	}
+ }
+ 
+@@ -437,7 +502,8 @@ void
+ display_cerase(window *win)
+ {
+ 	if (win->s_typebufpos > 0) {
+-		win->s_typebuf[--win->s_typebufpos] = 0;
++		win->s_typebufpos = next_to_last_char(win, win->s_typebufpos);
++		win->s_typebuf[win->s_typebufpos] = 0;
+ 	}
+ }
+ 
+@@ -502,15 +568,16 @@ display(int hiswin, unsigned char *text,
+ 		else if (text[j] == '\t') {
+ 			display_tab(win);
+ 		}
+-		else if ((text[j] & 0x7F) < ' ') {
++		else if (iscntrl (text[j])) {
+ 			display_addch(win, '^');
++			dorefresh();
+ 			display_addch(win, (text[j] & 63) + 64);
+ 		} 
+ 		else {
+ 			display_addch(win, text[j]);
+ 		}
++		dorefresh();
+ 	}
+-	dorefresh();
+ }
+ 
+ /**************************************************************/
+--- netkit-ntalk-0.17/talk/talk.c.i18n	1999-08-01 05:20:44.000000000 +0200
++++ netkit-ntalk-0.17/talk/talk.c	2005-01-10 10:16:26.819602344 +0100
+@@ -45,6 +45,8 @@ char talk_rcsid[] = 
+ 
+ #include "talk.h"
+ 
++#include <locale.h>
++
+ /*
+  * talk:	A visual form of write. Using sockets, a two way 
+  *		connection is set up between the two people talking. 
+@@ -62,6 +64,7 @@ char talk_rcsid[] = 
+ int
+ main(int argc, char *argv[])
+ {
++	setlocale (LC_CTYPE, "");
+ 	get_names(argc, argv);
+ 	init_display();
+ 	open_ctl();

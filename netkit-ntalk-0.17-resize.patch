@@ -1,0 +1,11 @@
+--- netkit-ntalk-0.17/talk/display.c.resize	2005-03-25 13:11:48.992823664 +0100
++++ netkit-ntalk-0.17/talk/display.c	2005-03-25 13:12:10.321581200 +0100
+@@ -282,7 +282,7 @@
+ 	unsigned char ch;
+ 
+ 	ich = getch();
+-	if (ich==ERR) {
++	if (ich==ERR || ich==KEY_RESIZE) {
+ 		return -1;
+ 	}
+ 

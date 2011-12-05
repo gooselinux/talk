@@ -1,0 +1,20 @@
+--- netkit-ntalk-0.17-pre20000412/talkd/announce.c.jj	Fri Nov 27 02:08:22 1998
++++ netkit-ntalk-0.17-pre20000412/talkd/announce.c	Fri Feb 23 06:25:31 2001
+@@ -40,6 +40,7 @@ char ann_rcsid[] = 
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sys/time.h>
++#include <time.h>
+ #include <sys/wait.h>
+ #include <sys/socket.h>
+ #include <errno.h>
+--- netkit-ntalk-0.17-pre20000412/talkd/table.c.jj	Fri Nov 27 02:58:47 1998
++++ netkit-ntalk-0.17-pre20000412/talkd/table.c	Fri Feb 23 06:25:56 2001
+@@ -47,6 +47,7 @@ char table_rcsid[] = 
+  */
+ #include <sys/param.h>
+ #include <sys/time.h>
++#include <time.h>
+ #include <sys/socket.h>
+ #include <syslog.h>
+ #include <unistd.h>

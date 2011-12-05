@@ -1,0 +1,21 @@
+--- netkit-ntalk-0.17/talk/ctl_transact.c.orig	1999-09-29 00:04:14.000000000 +0200
++++ netkit-ntalk-0.17/talk/ctl_transact.c	2004-07-29 14:37:58.000000000 +0200
+@@ -61,7 +61,9 @@
+ {
+ 	struct sockaddr_in loc, rem;
+ 	socklen_t length;
++#ifndef __linux__
+ 	int on=1;
++#endif
+ 
+ 	to_local_talkd = socket(AF_INET, SOCK_DGRAM, 0);
+ 	to_remote_talkd = socket(AF_INET, SOCK_DGRAM, 0);
+@@ -70,7 +72,7 @@
+ 		p_error("Bad socket");
+ 	}
+ 
+-#ifdef SO_BSDCOMPAT
++#if defined SO_BSDCOMPAT && !defined __linux__
+ 	/* 
+ 	 * Linux does some async error return stuff that
+ 	 * really disagrees with us. So we disable it.
